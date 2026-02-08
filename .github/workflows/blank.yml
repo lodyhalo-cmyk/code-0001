@@ -1,0 +1,239 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot } from 'firebase/firestore';
+import { Share2, Save, Play, Code, Eye, Copy, Check, Loader2, ExternalLink } from 'lucide-react';
+
+// إعدادات Firebase
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'live-code-editor';
+
+export default function App() {
+  const [html, setHtml] = useState('<h1>مرحباً بك!</h1>\n<p>اكتب كود HTML هنا.</p>');
+  const [css, setCss] = useState('body { font-family: sans-serif; text-align: center; color: #333; }');
+  const [js, setJs] = useState('console.log("برمجة سعيدة!");');
+  const [srcDoc, setSrcDoc] = useState('');
+  const [user, setUser] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [shareId, setShareId] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [activeTab, setActiveTab] = useState('html');
+
+  // الدخول التلقائي (Firebase Auth)
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) {
+        console.error("Auth error:", error);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  // التحقق من وجود ID في الرابط عند تحميل الصفحة
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id');
+    if (id && user) {
+      loadSharedCode(id);
+    }
+  }, [user]);
+
+  // تحديث نافذة المعاينة
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setSrcDoc(`
+        <html>
+          <head><style>${css}</style></head>
+          <body>${html}<script>${js}</script></body>
+        </html>
+      `);
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [html, css, js]);
+
+  // جلب الكود المحفوظ من Firestore
+  const loadSharedCode = async (id) => {
+    try {
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'projects', id);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setHtml(data.html || '');
+        setCss(data.css || '');
+        setJs(data.js || '');
+        setShareId(id);
+      }
+    } catch (error) {
+      console.error("Error loading project:", error);
+    }
+  };
+
+  // حفظ الكود وتوليد المعرف
+  const handleSave = async () => {
+    if (!user) return;
+    setIsSaving(true);
+    const newId = shareId || Math.random().toString(36).substring(2, 10);
+    
+    try {
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'projects', newId);
+      await setDoc(docRef, {
+        html,
+        css,
+        js,
+        authorId: user.uid,
+        updatedAt: new Date().toISOString()
+      });
+      setShareId(newId);
+    } catch (error) {
+      console.error("Save error:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // وظيفة نسخ الرابط
+  const copyLink = () => {
+    // نستخدم window.location.origin للحصول على الدومين الحالي تلقائياً
+    // إذا كنت على Vercel سيكون شيئاً مثل https://myapp.vercel.app
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set('id', shareId);
+    const shareableLink = currentUrl.toString();
+
+    const textArea = document.createElement("textarea");
+    textArea.value = shareableLink;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+    document.body.removeChild(textArea);
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-slate-900 text-white overflow-hidden font-sans" dir="rtl">
+      {/* الشريط العلوي */}
+      <header className="flex items-center justify-between px-6 py-3 bg-slate-800 border-b border-slate-700 shadow-xl shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-500/20">JS</div>
+          <div>
+            <h1 className="text-lg font-bold leading-none">محرر الأكواد السحابي</h1>
+            <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest">Live Cloud Editor</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          {shareId && (
+            <button 
+              onClick={copyLink}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 rounded-lg transition-all border border-emerald-600/30 text-sm font-bold"
+            >
+              {copySuccess ? <Check size={16} /> : <Share2 size={16} />}
+              {copySuccess ? 'تم نسخ الرابط!' : 'مشاركة الرابط'}
+            </button>
+          )}
+          <button 
+            onClick={handleSave}
+            disabled={isSaving}
+            className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold transition-all transform active:scale-95 shadow-lg ${
+              isSaving ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/30'
+            }`}
+          >
+            {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+            {isSaving ? 'جاري الحفظ...' : 'حفظ المشروع'}
+          </button>
+        </div>
+      </header>
+
+      {/* منطقة المحرر والمعاينة */}
+      <main className="flex flex-col md:flex-row flex-1 overflow-hidden">
+        {/* منطقة كتابة الكود */}
+        <section className="w-full md:w-1/2 flex flex-col border-l border-slate-800 bg-slate-950">
+          <div className="flex bg-slate-900/80 p-1 gap-1 border-b border-slate-800">
+            {['html', 'css', 'js'].map((tab) => (
+              <button 
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex-1 py-2 text-xs font-black transition-all rounded-md uppercase tracking-tighter ${
+                  activeTab === tab 
+                  ? 'bg-slate-700 text-white shadow-inner' 
+                  : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 relative overflow-hidden group">
+            <textarea
+              value={activeTab === 'html' ? html : activeTab === 'css' ? css : js}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (activeTab === 'html') setHtml(val);
+                else if (activeTab === 'css') setCss(val);
+                else setJs(val);
+              }}
+              className="w-full h-full p-6 bg-transparent text-indigo-100 font-mono text-sm resize-none focus:outline-none placeholder-slate-800 leading-relaxed"
+              spellCheck="false"
+              dir="ltr"
+              placeholder={`Write ${activeTab.toUpperCase()} code here...`}
+            />
+            <div className="absolute top-4 left-4 opacity-10 pointer-events-none transition-opacity group-hover:opacity-20">
+               <Code size={100} />
+            </div>
+          </div>
+        </section>
+
+        {/* منطقة المعاينة */}
+        <section className="w-full md:w-1/2 flex flex-col bg-white">
+          <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200 shrink-0">
+            <span className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em] flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-red-400"></div>
+              <div className="w-2 h-2 rounded-full bg-yellow-400"></div>
+              <div className="w-2 h-2 rounded-full bg-green-400"></div>
+              <span className="mr-2">Live Preview</span>
+            </span>
+            <ExternalLink size={12} className="text-slate-300" />
+          </div>
+          <div className="flex-1 bg-white relative">
+            <iframe
+              srcDoc={srcDoc}
+              title="output"
+              sandbox="allow-scripts"
+              className="w-full h-full border-none"
+            />
+          </div>
+        </section>
+      </main>
+
+      {/* شريط الحالة السفلي */}
+      <footer className="bg-slate-900 border-t border-slate-800 px-6 py-2 flex justify-between items-center text-[10px] text-slate-600 font-bold shrink-0">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+            قاعدة البيانات: متصلة
+          </div>
+          {shareId && <div className="text-indigo-400">ID المشروع: {shareId}</div>}
+        </div>
+        <div className="flex items-center gap-1 opacity-50">
+          POWERED BY FIREBASE & REACT
+        </div>
+      </footer>
+    </div>
+  );
+}
