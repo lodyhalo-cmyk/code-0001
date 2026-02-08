@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e1e2e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #45475a;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #585b70;
+}
+
+/* Textarea custom styles */
+textarea {
+  scrollbar-width: thin;
+  scrollbar-color: #45475a #1e1e2e;
+}
+
+textarea::selection {
+  background: #585b70;
+  color: #cdd6f4;
+}
+
+/* Animation for modal */
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.fixed > div:not(.fixed) {
+  animation: modalIn 0.2s ease-out;
+}
